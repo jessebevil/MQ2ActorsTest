@@ -22,6 +22,12 @@ void ActorTestReceiveCallback(const std::shared_ptr<postoffice::Message>& messag
 		WriteChatf(message->Payload->c_str());
 
 		//PONG - Not needed, we're just verifying we got it.
+		//This would populate in ActorTestResponseCallback.
+		//message is the message we just received
+		//received is an std::string we're sending to them
+		//and the int value at the end is a custom response status.
+		//You can enumerate this based on logic from the message you received here.
+		//In this case we're using 0. This number should be a non-negative value.
 		std::string received = "received";
 		ActorTestDropbox.PostReply(message, received, 0);
 	}
@@ -53,9 +59,7 @@ void ActorTestResponseCallback(int responsestatus, const std::shared_ptr<postoff
 			WriteChatf("\arAmbiguous Recipient");
 			break;
 		default:
-			//There's only the above 4 response status. So we shouldn't be here.
-			//Simply here in the event the number of Enums changes and one isn't
-			//accounted for.
+			//There's only the above 4 response status built in. So if we are here. It's a PostReply
 			WriteChatf("\arResponseStatus: %d", responsestatus);
 			break;
 	}

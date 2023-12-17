@@ -35,7 +35,7 @@ void ActorTestReceiveCallback(const std::shared_ptr<postoffice::Message>& messag
 	WriteChatf("ReceiveCallback used");
 }
 
-void ActorTestResponseCallback(int responsestatus, const std::shared_ptr<postoffice::Message>& message) {
+void ActorTestResponseCallback(const postoffice::Address& address, int responsestatus, const std::shared_ptr<postoffice::Message>& message) {
 
 	postoffice::ResponseStatus rsResponse = static_cast<postoffice::ResponseStatus>(responsestatus);
 	switch (rsResponse) {
@@ -58,11 +58,11 @@ void ActorTestResponseCallback(int responsestatus, const std::shared_ptr<postoff
 			//1 - They wanted the buff.
 			if (responsestatus == 1) {
 				//can't do this, message->Sender->Character is always empty.
-				/*std::string sender = message->Sender->Character->c_str();
+				std::string sender = address.Character->c_str();
 				std::string buff = message->Payload->c_str();
 				WriteChatf("%s wants the buff %s", sender.c_str(), buff.c_str());
-				qBuffsToGive.push(std::make_pair(sender, buff));*/
-				WriteChatf("Someone wants %s", message->Payload->c_str());
+				qBuffsToGive.push(std::make_pair(sender, buff));
+				WriteChatf("%s wants %s", sender.c_str(), message->Payload->c_str());
 				return;
 			}
 
@@ -133,7 +133,12 @@ PLUGIN_API void OnPulse() {
 			//Let my group know what buffs we can do.
 			for (postoffice::Address& addr : gvGroupMembers) {
 				WriteChatf("Sent buffs to group member: %s", addr.Character->c_str());
-				ActorTestDropbox.Post(addr, mybuff, ActorTestResponseCallback);
+				//create a lamda that matches the required callback signature, but include the addr of the group member [addr]
+				//then call a modified function that includes the addr in the list of paramaters.
+				//This gives us access to the recipient on the response.
+				ActorTestDropbox.Post(addr, mybuff, [addr](int response, const std::shared_ptr<postoffice::Message>& message) {
+					ActorTestResponseCallback(addr, response, message);
+				});
 			}
 
 			//Do buffs in the queue then pop it out.

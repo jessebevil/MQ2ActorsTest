@@ -76,7 +76,7 @@ PLUGIN_API void OnPulse() {
 	if (!gINIT_DONE) {
 		// Do these need to be unique?
 		addr.Mailbox = "Mailbox";
-		addr.Character = pLocalPlayer->Name;
+		addr.Character = pLocalPlayer->Name;//this means just send to ourselves. Not ideal.
 		// Is this intended for the game server? Probably
 		// addr.Server
 		ActorTestDropbox = postoffice::AddActor("Mailbox", ActorTestReceiveCallback);

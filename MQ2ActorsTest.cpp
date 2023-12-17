@@ -30,9 +30,8 @@ void ActorTestReceiveCallback(const std::shared_ptr<postoffice::Message>& messag
 			std::string buffIWant = message->Payload->c_str();
 			ActorTestDropbox.PostReply(message, buffIWant, 1);
 		}
-		WriteChatf("%s", message->Payload->c_str());
+
 	}//We didn't need the broadcasted buff.
-	WriteChatf("ReceiveCallback used");
 }
 
 void ActorTestResponseCallback(const postoffice::Address& address, int responsestatus, const std::shared_ptr<postoffice::Message>& message) {
@@ -46,7 +45,7 @@ void ActorTestResponseCallback(const postoffice::Address& address, int responses
 			WriteChatf("\arNo connection");
 			break;
 		case postoffice::ResponseStatus::RoutingFailed:
-			WriteChatf("\arRouting Failed");
+			WriteChatf("\arRouting Failed to \ap%s", address.Character->c_str());
 			break;
 		case postoffice::ResponseStatus::AmbiguousRecipient:
 			WriteChatf("\arAmbiguous Recipient");
@@ -57,26 +56,23 @@ void ActorTestResponseCallback(const postoffice::Address& address, int responses
 			//WriteChatf("\ayResponseStatus: %d", responsestatus);
 			//1 - They wanted the buff.
 			if (responsestatus == 1) {
-				//can't do this, message->Sender->Character is always empty.
 				std::string sender = address.Character->c_str();
 				std::string buff = message->Payload->c_str();
 				WriteChatf("%s wants the buff %s", sender.c_str(), buff.c_str());
-				qBuffsToGive.push(std::make_pair(sender, buff));
-				WriteChatf("%s wants %s", sender.c_str(), message->Payload->c_str());
+				qBuffsToGive.emplace(std::make_pair(sender, buff));
 				return;
 			}
 
 			//unhandled responsestatus
-			WriteChatf("\ayResponseStatus: %d", responsestatus);
+			WriteChatf("\ayUnhandled ResponseStatus: \at%d\ax - Did you make a mistake?", responsestatus);
 
 			//Payload output to MQ Console.
 			if (message && message->Payload) {
-				WriteChatf("%s", message->Payload->c_str());
+				WriteChatf("Unhandled ResponseStatus payload %s", message->Payload->c_str());
 			}
 
 			break;
 	}
-	WriteChatf("Response callback used");
 }
 
 PLUGIN_API void OnPulse() {
@@ -87,8 +83,8 @@ PLUGIN_API void OnPulse() {
 	if (!pLocalPC->pGroupInfo)
 		return;
 
-	static postoffice::Address addr;
 	static std::string mybuff;
+
 	if (!gINIT_DONE) {
 		//Store an address for everyone currently in the group at load time. can adjust this later.
 		//Like when someone joins or leaves the group.
@@ -128,11 +124,9 @@ PLUGIN_API void OnPulse() {
 
 	//Proper main loop
 	if (gINIT_DONE && pulsedelay < pulse++) {
-		WriteChatf("Pulse Occured");
 		if (!ci_equals(mybuff, "NULL")) {
 			//Let my group know what buffs we can do.
 			for (postoffice::Address& addr : gvGroupMembers) {
-				WriteChatf("Sent buffs to group member: %s", addr.Character->c_str());
 				//create a lamda that matches the required callback signature, but include the addr of the group member [addr]
 				//then call a modified function that includes the addr in the list of paramaters.
 				//This gives us access to the recipient on the response.
@@ -144,7 +138,8 @@ PLUGIN_API void OnPulse() {
 			//Do buffs in the queue then pop it out.
 			if (!qBuffsToGive.empty() /*&& Im not in combat/moving/casting/dead/etc*/) {
 
-				//TODO: Add logic to do a buff.
+				//TODO: Add logic to do a buff. Pretend for now.
+				WriteChatf("Buffing %s with %s", qBuffsToGive.front().first.c_str(), qBuffsToGive.front().second.c_str());
 				qBuffsToGive.pop();
 			}
 		}

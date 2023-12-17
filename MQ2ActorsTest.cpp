@@ -9,41 +9,34 @@ PLUGIN_VERSION(0.1);
 //global. Need access to Remove and to AddActor
 //Locations like SetGameState, ShutdownPlugin, OnPulse, and Callbacks
 postoffice::DropboxAPI ActorTestDropbox;
+std::vector<postoffice::Address> gvGroupMembers;
+std::queue<std::pair<std::string, std::string>> qBuffsToGive;
 
 // no way to see if ActorTestDropbox is valid for removal....so keep track?
 bool gINIT_DONE = false;
-
-//using ReceiveCallbackAPI = std::function<void(const std::shared_ptr<Message>&)>;
-//The "using" specifies this should be a function with a return type of void, and parameter of const std::shared_ptr<postoffice::Message>& message
-void ActorTestReceiveCallback(const std::shared_ptr<postoffice::Message>& message) {
-	if (message && message->Payload) {
-		//Right now we're only sending std::string, so we know it's a string and we'll just write it out.
-		//Your plugin should determine what was sent, and then read it appropriately. Writing is just showing it was received.
-		WriteChatf(message->Payload->c_str());
-
-		//PONG - Not needed, we're just verifying we got it.
-		//This would populate in ActorTestResponseCallback.
-		//message is the message we just received
-		//received is an std::string we're sending to them
-		//and the int value at the end is a custom response status.
-		//You can enumerate this based on logic from the message you received here.
-		//In this case we're using 0. This number should be a non-negative value.
-		std::string received = "received";
-		ActorTestDropbox.PostReply(message, received, 0);
+bool WeNeedTheBuff(std::optional<std::string> buff) {
+	//Actually check this later. For now, just don't say true for "NULL"
+	if (buff && !ci_equals(buff->c_str(), "NULL")) {
+		return true;
 	}
+
+	return false;
 }
 
+void ActorTestReceiveCallback(const std::shared_ptr<postoffice::Message>& message) {
+	if (message && message->Payload) {
+		//pretend we check all our buffs for stacking, and now we want one of the broadcasted buffs from the person that sent it.
+		if (WeNeedTheBuff(message->Payload)) {//TODO: Add logic to check this.
+			std::string buffIWant = message->Payload->c_str();
+			ActorTestDropbox.PostReply(message, buffIWant, 1);
+		}
+		WriteChatf("%s", message->Payload->c_str());
+	}//We didn't need the broadcasted buff.
+	WriteChatf("ReceiveCallback used");
+}
 
-//using ResponseCallbackAPI = std::function<void(int, const std::shared_ptr<Message>&)>;
 void ActorTestResponseCallback(int responsestatus, const std::shared_ptr<postoffice::Message>& message) {
-	//While this is the only place ResponseStatus is used, you MUST cast either the enum to an int or
-	//the incoming int (currently called responsestatus) to a ResponseStatus to compare the two.
-	//According to dannuic you need to be explicit in your use of this which is why it requires a cast.
-	//It would be better if the API ResponseCallback's first param was a ResponseStatus to avoid this
-	//additional step. But dannuic says this is an intentional requirement.
-	//While it's technically undefined behavior to cast to ResponseStatus as it's a int8_t. It should
-	//Only ever be one of the 4 enums as a result. So assumptions are made. I don't like it, but it's
-	//not up to me.
+
 	postoffice::ResponseStatus rsResponse = static_cast<postoffice::ResponseStatus>(responsestatus);
 	switch (rsResponse) {
 		case postoffice::ResponseStatus::ConnectionClosed:
@@ -61,10 +54,29 @@ void ActorTestResponseCallback(int responsestatus, const std::shared_ptr<postoff
 		default:
 			//There's only the above 4 response status built in. So if we are here. It's a PostReply
 			//If it's a PostReply we should use our own ResponseStatus values. They should be >= 0
-			WriteChatf("\arResponseStatus: %d", responsestatus);
+			//WriteChatf("\ayResponseStatus: %d", responsestatus);
+			//1 - They wanted the buff.
+			if (responsestatus == 1) {
+				//can't do this, message->Sender->Character is always empty.
+				/*std::string sender = message->Sender->Character->c_str();
+				std::string buff = message->Payload->c_str();
+				WriteChatf("%s wants the buff %s", sender.c_str(), buff.c_str());
+				qBuffsToGive.push(std::make_pair(sender, buff));*/
+				WriteChatf("Someone wants %s", message->Payload->c_str());
+				return;
+			}
+
+			//unhandled responsestatus
+			WriteChatf("\ayResponseStatus: %d", responsestatus);
+
+			//Payload output to MQ Console.
+			if (message && message->Payload) {
+				WriteChatf("%s", message->Payload->c_str());
+			}
+
 			break;
 	}
-	// WriteChatf("ResponseCallback was triggered");
+	WriteChatf("Response callback used");
 }
 
 PLUGIN_API void OnPulse() {
@@ -72,30 +84,71 @@ PLUGIN_API void OnPulse() {
 	if (GetGameState() != GAMESTATE_INGAME || !pLocalPlayer)
 		return;
 
+	if (!GetCharInfo()->pGroupInfo)
+		return;
+
 	static postoffice::Address addr;
+	static std::string mybuff;
 	if (!gINIT_DONE) {
-		// Do these need to be unique?
-		addr.Mailbox = "Mailbox";
-		addr.Character = pLocalPlayer->Name;//this means just send to ourselves. Not ideal.
-		// Is this intended for the game server? Probably
-		// addr.Server
+		//Store an address for everyone currently in the group at load time. can adjust this later.
+		//Like when someone joins or leaves the group.
+		for (int i = 0; i < MAX_GROUP_SIZE; i++) {//not skipping myself for testing purposes.
+			CGroupMember* pMember = GetCharInfo()->Group->GetGroupMember(i);
+			if (!pMember)
+				break;
+
+			postoffice::Address memberaddress;
+			memberaddress.Mailbox = "Mailbox";
+			memberaddress.Character = pMember->GetName();
+			gvGroupMembers.push_back(memberaddress);
+		}
+
+		int myclass = pLocalPlayer->GetClass();
+		switch (myclass) {
+			case Cleric:
+				mybuff = "Temperance";
+				break;
+			case Shaman:
+				mybuff = "Swift Like the Wind";
+				break;
+			case Enchanter:
+				mybuff = "Aanya's Quickening";
+				break;
+			default:
+				mybuff = "NULL";
+				break;
+		}
+
 		ActorTestDropbox = postoffice::AddActor("Mailbox", ActorTestReceiveCallback);
 		gINIT_DONE = true;
 	}
 
-	static int pulsedelay = 1000;// This is pretty high value. Takes like 10 seconds? Don't need to be that fast for testing.
-	static int pulse = 1000;
+	static int pulsedelay = 3000;
+	static int pulse = 3000;
+
+	//Proper main loop
 	if (gINIT_DONE && pulsedelay < pulse++) {
-		std::string pointless = "somedata";
-		// send "somedata" as an std::string. You can send any string this way, and OnPulse
-		// is probably not the normal place you would send it, however we're just using this to show
-		// sending information from one client to another.
-		ActorTestDropbox.Post(addr, pointless, ActorTestResponseCallback);
+		WriteChatf("Pulse Occured");
+		if (!ci_equals(mybuff, "NULL")) {
+			//Let my group know what buffs we can do.
+			for (postoffice::Address& addr : gvGroupMembers) {
+				WriteChatf("Sent buffs to group member: %s", addr.Character->c_str());
+				ActorTestDropbox.Post(addr, mybuff, ActorTestResponseCallback);
+			}
+
+			//Do buffs in the queue then pop it out.
+			if (!qBuffsToGive.empty() /*&& Im not in combat/moving/casting/dead/etc*/) {
+
+				//TODO: Add logic to do a buff.
+				qBuffsToGive.pop();
+			}
+		}
+
 		pulse = 0;
 	}
 }
 
-PLUGIN_API void SetGameState(int GameState) {
+PLUGIN_API void SetGameState(int GameState) {//Brain says this isn't needed, and just ignore the messages
 	if (GameState != GAMESTATE_INGAME && gINIT_DONE) {
 		ActorTestDropbox.Remove();
 		gINIT_DONE = false;

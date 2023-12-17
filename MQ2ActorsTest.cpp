@@ -84,7 +84,7 @@ PLUGIN_API void OnPulse() {
 	if (GetGameState() != GAMESTATE_INGAME || !pLocalPlayer)
 		return;
 
-	if (!GetCharInfo()->pGroupInfo)
+	if (!pLocalPC->pGroupInfo)
 		return;
 
 	static postoffice::Address addr;
@@ -93,7 +93,7 @@ PLUGIN_API void OnPulse() {
 		//Store an address for everyone currently in the group at load time. can adjust this later.
 		//Like when someone joins or leaves the group.
 		for (int i = 0; i < MAX_GROUP_SIZE; i++) {//not skipping myself for testing purposes.
-			CGroupMember* pMember = GetCharInfo()->Group->GetGroupMember(i);
+			CGroupMember* pMember = pLocalPC->Group->GetGroupMember(i);
 			if (!pMember)
 				break;
 

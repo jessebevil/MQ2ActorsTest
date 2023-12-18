@@ -9,11 +9,15 @@ PLUGIN_VERSION(0.1);
 //global. Need access to Remove and to AddActor
 //Locations like SetGameState, ShutdownPlugin, OnPulse, and Callbacks
 postoffice::DropboxAPI ActorTestDropbox;
-std::vector<postoffice::Address> gvGroupMembers;
 std::queue<std::pair<std::string, std::string>> qBuffsToGive;
 
 // no way to see if ActorTestDropbox is valid for removal....so keep track?
 bool gINIT_DONE = false;
+bool gGroupChanged = true;
+
+//Need a timer to allow any changes in group to finish or we don't get our group correctly.
+static uint64_t VerifyGroupTimer = 0;
+
 bool WeNeedTheBuff(std::optional<std::string> buff) {
 	//Actually check this later. For now, just don't say true for "NULL"
 	if (buff && !ci_equals(buff->c_str(), "NULL")) {
@@ -45,6 +49,7 @@ void ActorTestResponseCallback(const postoffice::Address& address, int responses
 			WriteChatf("\arNo connection");
 			break;
 		case postoffice::ResponseStatus::RoutingFailed:
+			//Group member wasn't connected at the time the message was sent
 			WriteChatf("\arRouting Failed to \ap%s", address.Character->c_str());
 			break;
 		case postoffice::ResponseStatus::AmbiguousRecipient:
@@ -80,25 +85,9 @@ PLUGIN_API void OnPulse() {
 	if (GetGameState() != GAMESTATE_INGAME || !pLocalPlayer)
 		return;
 
-	if (!pLocalPC->pGroupInfo)
-		return;
-
 	static std::string mybuff;
 
 	if (!gINIT_DONE) {
-		//Store an address for everyone currently in the group at load time. can adjust this later.
-		//Like when someone joins or leaves the group.
-		for (int i = 0; i < MAX_GROUP_SIZE; i++) {//not skipping myself for testing purposes.
-			CGroupMember* pMember = pLocalPC->Group->GetGroupMember(i);
-			if (!pMember)
-				break;
-
-			postoffice::Address memberaddress;
-			memberaddress.Mailbox = "Mailbox";
-			memberaddress.Character = pMember->GetName();
-			gvGroupMembers.push_back(memberaddress);
-		}
-
 		int myclass = pLocalPlayer->GetClass();
 		switch (myclass) {
 			case Cleric:
@@ -119,32 +108,46 @@ PLUGIN_API void OnPulse() {
 		gINIT_DONE = true;
 	}
 
-	static int pulsedelay = 3000;
-	static int pulse = 3000;
-
 	//Proper main loop
-	if (gINIT_DONE && pulsedelay < pulse++) {
+	if (gINIT_DONE) {
 		if (!ci_equals(mybuff, "NULL")) {
-			//Let my group know what buffs we can do.
-			for (postoffice::Address& addr : gvGroupMembers) {
-				//create a lamda that matches the required callback signature, but include the addr of the group member [addr]
-				//then call a modified function that includes the addr in the list of paramaters.
-				//This gives us access to the recipient on the response.
-				ActorTestDropbox.Post(addr, mybuff, [addr](int response, const std::shared_ptr<postoffice::Message>& message) {
-					ActorTestResponseCallback(addr, response, message);
-				});
+			static int pulsedelay = 1000;
+			static int pulse = pulsedelay;//start the pulse at the pulsedelay so that it fires immediately.
+			if (pulsedelay < pulse++) {
+				//Let my group know what buffs we can do.
+				if (pLocalPC->pGroupInfo) {
+					for (int i = 0; i < MAX_GROUP_SIZE; i++) {//not skipping myself for testing purposes.
+						CGroupMember* pMember = pLocalPC->Group->GetGroupMember(i);
+						if (!pMember)
+							break;
+
+						//Setup a mailbox address for each member.
+						postoffice::Address memberaddress;
+						memberaddress.Mailbox = "Mailbox";
+						memberaddress.Character = pMember->GetName();
+
+						//create a lamda that matches the required callback signature, but include the addr of the group member [addr]
+						//then call a modified function that includes the addr in the list of paramaters.
+						//This gives us access to more than just the PID of who responded.
+						ActorTestDropbox.Post(memberaddress, mybuff, [memberaddress](int response, const std::shared_ptr<postoffice::Message>& message) {
+							ActorTestResponseCallback(memberaddress, response, message);
+							});
+					}
+				}
+
+				pulse = 0;
 			}
 
 			//Do buffs in the queue then pop it out.
-			if (!qBuffsToGive.empty() /*&& Im not in combat/moving/casting/dead/etc*/) {
+			static int buffdelay = 500;
+			static int buffpulse = buffdelay;//start the buffpulse at the buffdelay so that it fires immediately.
+			if (!qBuffsToGive.empty() && buffdelay < buffpulse++ /*&& Im not in combat/moving/casting/dead/etc*/) {
 
 				//TODO: Add logic to do a buff. Pretend for now.
-				WriteChatf("Buffing %s with %s", qBuffsToGive.front().first.c_str(), qBuffsToGive.front().second.c_str());
+				WriteChatf("\ayBuffing \at%s\ax with \ap%s", qBuffsToGive.front().first.c_str(), qBuffsToGive.front().second.c_str());
 				qBuffsToGive.pop();
 			}
 		}
-
-		pulse = 0;
 	}
 }
 
@@ -160,4 +163,5 @@ PLUGIN_API void ShutdownPlugin() {
 	//This specifically occured when I was sending a post every pulse of OnPulse and unload the plugin.
 	//Probably not going to happen if you throttle how often you send posts.
 	ActorTestDropbox.Remove();
+	//Don't need to set gINIT_DONE here because we're closing the entire plugin.
 }

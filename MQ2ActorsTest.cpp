@@ -135,6 +135,55 @@ PLUGIN_API void OnPulse() {
 					}
 				}
 
+				//Handle Xtargets
+				if (ExtendedTargetList* xtl = pLocalPC->pXTargetMgr) {
+					for (int i = 0; i < xtl->XTargetSlots.Count; i++) {
+						ExtendedTargetSlot xts = xtl->XTargetSlots[i];
+						if (xts.xTargetType && xts.XTargetSlotStatus && xts.xTargetType == XTARGET_SPECIFIC_PC) {
+							PlayerClient* thisXTargetMember = GetSpawnByID(xts.SpawnID);
+							if (!thisXTargetMember)
+								continue;
+
+							//Setup a mailbox address for each member.
+							postoffice::Address memberaddress;
+							memberaddress.Mailbox = "Mailbox";
+							memberaddress.Character = thisXTargetMember->Name;
+
+							//create a lamda that matches the required callback signature, but include the addr of the group member [addr]
+							//then call a modified function that includes the addr in the list of paramaters.
+							//This gives us access to more than just the PID of who responded.
+							ActorTestDropbox.Post(memberaddress, mybuff, [memberaddress](int response, const std::shared_ptr<postoffice::Message>& message) {
+								ActorTestResponseCallback(memberaddress, response, message);
+							});
+						}
+					}
+				}
+
+				//Handle raid members.
+				if (pRaid && pRaid->RaidMemberCount) {
+					for (int j = 0; j < 72; j++) {
+						if (!pRaid->locations[j])
+							continue;
+
+						PlayerClient* thisRaidMember = GetSpawnByName(pRaid->raidMembers[j].Name);
+						if (!thisRaidMember)
+							continue;
+
+						//Setup a mailbox address for each member.
+						postoffice::Address memberaddress;
+						memberaddress.Mailbox = "Mailbox";
+						memberaddress.Character = thisRaidMember->Name;
+
+						//create a lamda that matches the required callback signature, but include the addr of the group member [addr]
+						//then call a modified function that includes the addr in the list of paramaters.
+						//This gives us access to more than just the PID of who responded.
+						ActorTestDropbox.Post(memberaddress, mybuff, [memberaddress](int response, const std::shared_ptr<postoffice::Message>& message) {
+							ActorTestResponseCallback(memberaddress, response, message);
+						});
+
+					}
+				}
+
 				pulse = 0;
 			}
 
